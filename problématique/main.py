@@ -1,3 +1,9 @@
+# Command lines to run the file:
+# C:/Python311/python.exe main.py --mode train --task classification --batch_size 32 --epochs 10 --lr 0.001 --use_gpu
+# C:/Python311/python.exe main.py --mode train --task detection --batch_size 32 --epochs 10 --lr 0.001 --use_gpu
+# C:/Python311/python.exe main.py --mode train --task segmentation --batch_size 16 --epochs 50 --lr 0.0005 --use_gpu
+
+
 #! usr/bin/python3
 import argparse
 import os
@@ -10,6 +16,10 @@ from torchvision import transforms
 from dataset import ConveyorSimulator
 from metrics import AccuracyMetric, MeanAveragePrecisionMetric, SegmentationIntersectionOverUnionMetric
 from visualizer import Visualizer
+from models.classification_network import build_classification_model, build_classification_criterion
+from models.detection_network import build_detection_model, build_detection_criterion
+# from models.segmentation_network import build_segmentation_model, build_segmentation_criterion
+
 
 TRAIN_VALIDATION_SPLIT = 0.9
 CLASS_PROBABILITY_THRESHOLD = 0.5
@@ -45,29 +55,31 @@ class ConveyorCnnTrainer():
         print('\nNumber of parameters in the model : ', sum(p.numel()
               for p in self._model.parameters()))
 
+    def _decode_pred(self, pred):
+        # pred: (N, A, 1+3+C) logits
+        # Helper for the detection code
+        obj = torch.sigmoid(pred[..., 0:1])
+        box = torch.sigmoid(pred[..., 1:4])
+        cls = torch.softmax(pred[..., 4:], dim=-1)   # (N,A,C) -> probs
+        return torch.cat([obj, box, cls], dim=-1)    # (N,A,1+3+C)
+
     def _create_model(self, task):
         if task == 'classification':
-            # À compléter
-            raise NotImplementedError()
+            return build_classification_model(in_channels=1, num_classes=3)
         elif task == 'detection':
-            # À compléter
-            raise NotImplementedError()
+            return build_detection_model(in_channels=1, num_anchors=3, num_classes=3)
         elif task == 'segmentation':
-            # À compléter
-            raise NotImplementedError()
+            return build_segmentation_model(in_channels=1, num_classes=4)
         else:
             raise ValueError('Not supported task')
 
     def _create_criterion(self, task):
         if task == 'classification':
-            # À compléter
-            raise NotImplementedError()
+            return build_classification_criterion()
         elif task == 'detection':
-            # À compléter
-            raise NotImplementedError()
+            return build_detection_criterion()
         elif task == 'segmentation':
-            # À compléter
-            raise NotImplementedError()
+            return build_segmentation_criterion()
         else:
             raise ValueError('Not supported task')
 
@@ -113,6 +125,11 @@ class ConveyorCnnTrainer():
             test_loss, test_metric.get_name(), test_metric.get_value()))
 
         prediction = self._model(image)
+        # Used to add sigmoid and softmax to better visualize the results
+        decoded = self._decode_pred(prediction)
+        if self._args.task == 'detection':
+            prediction = decoded
+
         visualizer.show_prediction(
             image[0], prediction[0], segmentation_target[0], boxes[0], class_labels[0])
 
@@ -209,6 +226,11 @@ class ConveyorCnnTrainer():
                 validation_loss, validation_metric.get_name(), validation_metric_value))
 
             prediction = self._model(image)
+
+            # Used to add sigmoid and softmax to better visualize the results
+            decoded = self._decode_pred(prediction)
+            if self._args.task == 'detection':
+                prediction = decoded
             visualizer.show_prediction(
                 image[0], prediction[0], masks[0], boxes[0], labels[0])
             visualizer.show_learning_curves(epochs_train_losses, epochs_validation_losses,
@@ -244,7 +266,7 @@ class ConveyorCnnTrainer():
                 Si le vecteur représente un objet (i, j, :):
                     (i, j, 1) est la position x centrale normalisée de l'objet j de l'image i.
                     (i, j, 2) est la position y centrale normalisée de l'objet j de l'image i.
-                    (i, j, 3) est la largeur normalisée et la hauteur normalisée de l'objet j de l'image i.
+                    (i, j, 3) est la largeur normalisée et la hauteur normalisée de l'objet j de l'image i. Forme carrée
                     (i, j, 4) est l'indice de la classe de l'objet j de l'image i.
 
         :param class_labels: Le tenseur cible pour la tâche de classification
@@ -258,8 +280,47 @@ class ConveyorCnnTrainer():
         :return: La valeur de la fonction de coût pour le lot
         """
 
-        # À compléter
-        raise NotImplementedError()
+        if task == 'classification':
+            logits = model(image)               # (N,3)
+            y = class_labels.float()
+            loss = criterion(logits, y)
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            optimizer.step()
+            with torch.no_grad():
+                metric.accumulate(torch.sigmoid(logits), y)
+            return loss
+
+        elif task == 'detection':
+            pred = model(image)                 # (N,3,1+3+3)
+            loss = criterion(pred, boxes)       # boxes: (N,3,5)
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            optimizer.step()
+
+            obj = torch.sigmoid(pred[..., 0:1])
+            box = torch.sigmoid(pred[..., 1:4])
+            cls = torch.softmax(pred[..., 4:], dim=-1)
+            pred_metric = torch.cat([obj, box, cls], dim=-1)
+            metric.accumulate(pred_metric, boxes)
+
+            return loss
+
+        elif task == 'segmentation':
+            logits = model(image)               # (N,4,H,W)
+            y = segmentation_target.long()      # (N,H,W)
+            loss = criterion(logits, y)
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            optimizer.step()
+            with torch.no_grad():
+                # Probabilités pour métrique IoU (si Metric prend argmax ou softmax)
+                probs = torch.softmax(logits, dim=1)
+                metric.accumulate(probs, y)
+            return loss
+
+        raise NotImplementedError(
+            f"Training for task '{task}' not implemented")
 
     def _test_batch(self, task, model, criterion, metric, image, segmentation_target, boxes, class_labels):
         """
@@ -299,8 +360,33 @@ class ConveyorCnnTrainer():
         :return: La valeur de la fonction de coût pour le lot
         """
 
-        # À compléter
-        raise NotImplementedError()
+        if task == 'classification':
+            logits = model(image)
+            y = class_labels.float()
+            loss = criterion(logits, y)
+            metric.accumulate(torch.sigmoid(logits), y)
+            return loss
+
+        elif task == 'detection':
+            pred = model(image)
+            loss = criterion(pred, boxes)
+
+            obj = torch.sigmoid(pred[..., 0:1])
+            box = torch.sigmoid(pred[..., 1:4])
+            cls = torch.softmax(pred[..., 4:], dim=-1)
+            pred_metric = torch.cat([obj, box, cls], dim=-1)
+            metric.accumulate(pred_metric, boxes)
+            return loss
+
+        elif task == 'segmentation':
+            logits = model(image)
+            y = segmentation_target.long()
+            loss = criterion(logits, y)
+            probs = torch.softmax(logits, dim=1)
+            metric.accumulate(probs, y)
+            return loss
+
+        raise NotImplementedError(f"Eval for task '{task}' not implemented")
 
 
 if __name__ == '__main__':
