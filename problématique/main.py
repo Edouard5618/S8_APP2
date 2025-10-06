@@ -1,6 +1,6 @@
 # Command lines to run the file:
 # C:/Python311/python.exe main.py --mode train --task classification --batch_size 32 --epochs 10 --lr 0.001 --use_gpu
-# C:/Python311/python.exe main.py --mode train --task detection --batch_size 32 --epochs 10 --lr 0.001 --use_gpu
+# C:/Python311/python.exe main.py --mode train --task detection --batch_size 32 --epochs 10 --lr 0.0005 --use_gpu
 # C:/Python311/python.exe main.py --mode train --task segmentation --batch_size 16 --epochs 50 --lr 0.0005 --use_gpu
 
 
@@ -297,12 +297,10 @@ class ConveyorCnnTrainer():
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()
+            pred_metric = self._decode_pred(pred)
 
-            obj = torch.sigmoid(pred[..., 0:1])
-            box = torch.sigmoid(pred[..., 1:4])
-            cls = torch.softmax(pred[..., 4:], dim=-1)
-            pred_metric = torch.cat([obj, box, cls], dim=-1)
-            metric.accumulate(pred_metric, boxes)
+            with torch.no_grad():
+                metric.accumulate(pred_metric, boxes)
 
             return loss
 
@@ -313,8 +311,9 @@ class ConveyorCnnTrainer():
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()
+
             with torch.no_grad():
-                # Probabilités pour métrique IoU (si Metric prend argmax ou softmax)
+                # Compute probabilities for metric
                 probs = torch.softmax(logits, dim=1)
                 metric.accumulate(probs, y)
             return loss
@@ -370,12 +369,9 @@ class ConveyorCnnTrainer():
         elif task == 'detection':
             pred = model(image)
             loss = criterion(pred, boxes)
-
-            obj = torch.sigmoid(pred[..., 0:1])
-            box = torch.sigmoid(pred[..., 1:4])
-            cls = torch.softmax(pred[..., 4:], dim=-1)
-            pred_metric = torch.cat([obj, box, cls], dim=-1)
-            metric.accumulate(pred_metric, boxes)
+            pred_metric = self._decode_pred(pred)
+            with torch.no_grad():
+                metric.accumulate(pred_metric, boxes)
             return loss
 
         elif task == 'segmentation':
