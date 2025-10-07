@@ -1,6 +1,6 @@
 # Command lines to run the file:
 # C:/Python311/python.exe main.py --mode train --task classification --batch_size 32 --epochs 10 --lr 0.001 --use_gpu
-# C:/Python311/python.exe main.py --mode train --task detection --batch_size 32 --epochs 10 --lr 0.0005 --use_gpu
+# C:/Python311/python.exe main.py --mode train --task detection --batch_size 32 --epochs 20 --lr 0.0005 --use_gpu
 # C:/Python311/python.exe main.py --mode train --task segmentation --batch_size 16 --epochs 50 --lr 0.0005 --use_gpu
 
 
