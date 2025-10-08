@@ -130,8 +130,9 @@ class ConveyorCnnTrainer():
         if self._args.task == 'detection':
             prediction = decoded
 
+        index = 8
         visualizer.show_prediction(
-            image[0], prediction[0], segmentation_target[0], boxes[0], class_labels[0])
+            image[index], prediction[index], segmentation_target[index], boxes[index], class_labels[index])
 
     def train(self):
         epochs_train_losses = []

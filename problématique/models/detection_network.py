@@ -16,7 +16,7 @@ class DetectionNet(nn.Module):
             nn.Conv2d(16, 16, 3, padding=1),  # (N, 16, 53, 53) -> (N, 16, 53, 53)
             nn.BatchNorm2d(16),
             nn.LeakyReLU(),
-            nn.Dropout2d(0.02),
+            nn.Dropout2d(0.1),
             nn.MaxPool2d(3, 2),  # (N, 16, 53, 53) -> (N, 16, 26, 26)
 
 
@@ -26,7 +26,7 @@ class DetectionNet(nn.Module):
             nn.Conv2d(32, 32, 3, padding=1),  # (N, 32, 26, 26) -> (N, 32, 26, 26)
             nn.BatchNorm2d(32),
             nn.LeakyReLU(),
-            nn.Dropout2d(0.02),
+            nn.Dropout2d(0.1),
             nn.MaxPool2d(2),  # (N, 32, 26, 26) -> (N, 32, 13, 13)
 
 
@@ -36,14 +36,14 @@ class DetectionNet(nn.Module):
             nn.Conv2d(64, 64, 3, padding=1),  # (N, 32, 13, 13) -> (N, 64, 13, 13)
             nn.BatchNorm2d(64),
             nn.LeakyReLU(),
-            nn.AdaptiveAvgPool2d((7, 7))   # (N,64,13,13) -> (N,64,7,7)
+            nn.AdaptiveMaxPool2d((7, 7))   # (N,64,13,13) -> (N,64,7,7)
         )
 
         self.linear = nn.Sequential(
             nn.Flatten(1),              # (N,64,7,7) -> (N,3136)
             nn.Linear(64 * 7 * 7, 96),  # (N,3136) -> (N,96)
             nn.ReLU(),
-            nn.Dropout(0.05),
+            nn.Dropout(0.1),
         )
 
         self.obj_head = nn.Linear(96, num_anchors * 1)               # (N,96) -> (N,3)
